@@ -4,7 +4,7 @@ def main():
     client_socket = None
 
     while True:
-        command = input()  # User input without a prompt
+        command = input()
 
         if command.startswith('/join '):
             if client_socket:

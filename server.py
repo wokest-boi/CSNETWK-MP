@@ -60,16 +60,13 @@ def get_server_ip():
 
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_port = 10000  # Port to listen on
-
-    # Bind the socket to all interfaces
+    server_port = 10000 
     server_socket.bind(('', server_port))
     server_socket.listen(1)
 
     if not os.path.exists(file_storage_path):
         os.makedirs(file_storage_path)
 
-    # Get the server's IP and announce it
     server_ip = get_server_ip()
     print(f"Server is running on IP {server_ip} and waiting for connections on port {server_port}")
 
