@@ -64,8 +64,44 @@ def send_file(client_socket, filename):
 
 
 def register_client(client_address, handle):
-    clients[client_address] = handle
-    print(f"Client {client_address} registered as {handle}")
+    """
+    Register a client with a unique handle.
+
+    Parameters:
+    - client_address: The address of the client.
+    - handle: The handle (alias or name) of the client.
+
+    The function checks if the handle is already in use by another client.
+    If the handle is not in use, it registers the client with the given handle.
+    If the handle is already in use, it suggests an alternative handle.
+
+    Note: The function assumes a global 'clients' dictionary is defined to store client information.
+    """
+    if handle in clients.values():
+        # Handle already in use, suggest an alternative
+        suggested_handle = generate_unique_handle(handle)
+        print(f"Error: Registration Failed. Handle '{handle}' is already in use.\nSuggestion: try using '{suggested_handle}' instead.")
+    else:
+        # Register the client with the given handle
+        clients[client_address] = handle
+        print(f"Client {client_address} registered as {handle}")
+
+def generate_unique_handle(handle):
+    """
+    Generate a unique handle by appending a number to the original handle.
+
+    Parameters:
+    - handle: The original handle.
+
+    Returns:
+    - str: A unique handle.
+    """
+    count = 1
+    while f"{handle}_{count}" in clients.values():
+        count += 1
+    return f"{handle}_{count}"
+
+
 
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
