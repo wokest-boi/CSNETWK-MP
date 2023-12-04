@@ -1,30 +1,47 @@
 import socket
 import os
+import threading
 
 file_storage_path = 'file_storage'
+clients = {}  # Dictionary to store client information
 
-def handle_command(command, client_socket):
-    if command.startswith('/store '):
-        filename = command.split()[1]
-        store_file(client_socket, filename)
-    elif command == '/dir':
-        list_files(client_socket)
-    elif command.startswith('/get '):
-        filename = command.split()[1]
-        send_file(client_socket, filename)
-    else:
-        response = "Unknown command".encode()
-        client_socket.sendall(response)
+def handle_client_connection(client_socket, client_address):
+    while True:
+        try:
+            data = client_socket.recv(1024).decode()
+            if not data:
+                break
+
+            if data.startswith('/store '):
+                filename = data.split()[1]
+                store_file(client_socket, filename)
+            elif data == '/dir':
+                list_files(client_socket)
+            elif data.startswith('/get '):
+                filename = data.split()[1]
+                send_file(client_socket, filename)
+            elif data.startswith('/register '):
+                handle = data.split()[1]
+                register_client(client_address, handle)
+            else:
+                client_socket.sendall("Unknown command".encode())
+        except Exception as e:
+            print(f"Error: {e}")
+            break
+
+    print(f"Client {client_address} disconnected")
+    client_socket.close()
+    if client_address in clients:
+        del clients[client_address]
 
 def store_file(client_socket, filename):
     with open(os.path.join(file_storage_path, filename), 'wb') as f:
         while True:
             data = client_socket.recv(1024)
-            if not data or data.endswith(b'EOF'):
+            if not data or data == b'EOF':
                 break
             f.write(data)
     client_socket.sendall('File stored successfully'.encode())
-
 
 def list_files(client_socket):
     files = os.listdir(file_storage_path)
@@ -44,45 +61,26 @@ def send_file(client_socket, filename):
     else:
         client_socket.sendall('File not found'.encode())
 
-def get_server_ip():
-    """Get the server's local IP address."""
-    try:
-        # Create a temporary socket to determine the local IP address
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as temp_socket:
-            # Connect the socket to a public DNS server
-            temp_socket.connect(("8.8.8.8", 80))
-            # Get the socket's own address
-            server_ip = temp_socket.getsockname()[0]
-            return server_ip
-    except Exception:
-        # Fallback in case the above method fails
-        return 'localhost'
+def register_client(client_address, handle):
+    clients[client_address] = handle
+    print(f"Client {client_address} registered as {handle}")
 
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_port = 10000 
-    server_socket.bind(('', server_port))
-    server_socket.listen(1)
+    server_address = ('', 10000)  # Listen on all interfaces
+    server_socket.bind(server_address)
+    server_socket.listen(5)
 
     if not os.path.exists(file_storage_path):
         os.makedirs(file_storage_path)
 
-    server_ip = get_server_ip()
-    print(f"Server is running on IP {server_ip} and waiting for connections on port {server_port}")
+    print("Server is running and waiting for connections...")
 
     while True:
         connection, client_address = server_socket.accept()
-        try:
-            print(f"Connected to {client_address}")
-            while True:
-                data = connection.recv(1024).decode()
-                if data:
-                    handle_command(data, connection)
-                else:
-                    break
-        finally:
-            print(f"Disconnected from {client_address}")
-            connection.close()
+        print(f"Connected to {client_address}")
+        client_thread = threading.Thread(target=handle_client_connection, args=(connection, client_address))
+        client_thread.start()
 
 if __name__ == "__main__":
     main()
