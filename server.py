@@ -38,7 +38,8 @@ def store_file(client_socket, filename):
     with open(os.path.join(file_storage_path, filename), 'wb') as f:
         while True:
             data = client_socket.recv(1024)
-            if not data or data == b'EOF':
+            if b'EOF' in data:
+                f.write(data.replace(b'EOF', b''))  # Write data excluding the EOF marker
                 break
             f.write(data)
     client_socket.sendall('File stored successfully'.encode())
@@ -55,11 +56,12 @@ def send_file(client_socket, filename):
             while True:
                 data = f.read(1024)
                 if not data:
+                    client_socket.sendall(b'EOF')  # Send EOF marker after file data
                     break
                 client_socket.sendall(data)
-        client_socket.sendall(b'EOF')
     else:
         client_socket.sendall('File not found'.encode())
+
 
 def register_client(client_address, handle):
     clients[client_address] = handle

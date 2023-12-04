@@ -3,24 +3,31 @@ import socket
 def send_file(socket, filename):
     try:
         with open(filename, 'rb') as f:
-            socket.sendall(f"/store {filename}\n".encode())
+            socket.sendall(f"/store {filename}\n".encode())  # Notify server about the file
             while True:
                 data = f.read(1024)
                 if not data:
-                    socket.sendall(b'EOF')
+                    socket.sendall(b'EOF')  # Send EOF in a separate packet
                     break
                 socket.sendall(data)
+        response = socket.recv(1024)  # Wait for the server's response
+        print(response.decode())
     except FileNotFoundError:
         print("File not found")
+
+
 
 def receive_file(socket, filename):
     with open(filename, 'wb') as f:
         while True:
             data = socket.recv(1024)
-            if data.endswith(b'EOF'):
+            if b'EOF' in data:
+                if data[:-3]:  # Check if there's data before EOF
+                    f.write(data[:-3])  # Write data excluding the EOF marker
                 break
             f.write(data)
     print(f"File {filename} received")
+
 
 def process_command(client_socket, command):
     if command.startswith('/store '):
