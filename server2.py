@@ -56,11 +56,9 @@ class FileExchangeServer:
                     handle = data.split()[1]
                     self.register_client(client_socket, client_address, handle)
                 elif data.startswith('/msg '):
-                    # Unicast messaging to a specific user
                     _, recipient, message = data.split(' ', 2)
                     self.unicast_message(client_socket, client_address, recipient, message)
                 elif data.startswith('/all '):
-                    # Broadcast messaging to all users
                     _, message = data.split(' ', 1)
                     self.broadcast_message(client_socket, client_address, message)
                 elif data == '/shutdown':
@@ -73,7 +71,6 @@ class FileExchangeServer:
             
     def shutdown_server(self):
         self.running = False
-        # Notify connected clients about the shutdown
         for socket in self.sockets:
             try:
                 socket.sendall("Server is shutting down.".encode())
@@ -91,15 +88,12 @@ class FileExchangeServer:
 
             if recipient_socket:
                 try:
-                    # Send to recipient
                     recipient_socket.sendall(response.encode())
-                    # Also send back to sender for confirmation
                     client_socket.sendall(response.encode())
                 except Exception as e:
                     logging.error(f"Error sending unicast message: {e}")
 
     def broadcast_message(self, client_socket, client_address, message):
-        # Implement logic to broadcast message to all connected users
         if client_address in self.clients:
             sender_handle = self.clients[client_address]
             response = f"<All> {sender_handle}: {message}"
@@ -203,7 +197,6 @@ class FileExchangeServer:
             response = f"{sender_handle} : {message}"
             logging.info(response)
 
-            # Check if it's a broadcast message
             if is_broadcast:
                 response = "Broadcast from " + response
                 for socket in self.sockets:
@@ -212,10 +205,9 @@ class FileExchangeServer:
                     except Exception as e:
                         logging.error(f"Error sending broadcast message: {e}")
             else:
-                # Unicast message
                 target_user = message.split()[0]
                 response = "Unicast from " + response
-                message_sent = False  # Flag to check if message was sent to recipient
+                message_sent = False 
                 for address, handle in self.clients.items():
                     if handle == target_user:
                         try:
