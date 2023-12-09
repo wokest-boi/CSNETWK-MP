@@ -22,17 +22,21 @@ class FileExchangeServer:
             os.makedirs(self.file_storage_path)
 
     def start(self):
+        self.running = True
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind(('', self.port))
         server_socket.listen(self.max_connections)
         logging.info("Server is running and waiting for connections...")
 
-        while True:
+        while self.running:
             connection, client_address = server_socket.accept()
             self.sockets.add(connection)#Railey's edit ,adds clients to set
             logging.info(f"Connected to {client_address}")
             client_thread = threading.Thread(target=self.handle_client_connection, args=(connection, client_address))
             client_thread.start()
+            
+        server_socket.close()
+        logging.info("Server has been shut down.")
 
     def handle_client_connection(self, client_socket, client_address):
         while True:
@@ -40,7 +44,6 @@ class FileExchangeServer:
                 data = client_socket.recv(1024).decode()
                 if not data:
                     break
-
                 if data.startswith('/store '):
                     filename = data.split()[1]
                     self.store_file(client_socket, client_address, filename)
@@ -53,20 +56,67 @@ class FileExchangeServer:
                     handle = data.split()[1]
                     self.register_client(client_socket, client_address, handle)
                 elif data.startswith('/msg '):
-                    message = data.split()[1]
-                    self.message(client_socket, client_address, message)
+                    # Unicast messaging to a specific user
+                    _, recipient, message = data.split(' ', 2)
+                    self.unicast_message(client_socket, client_address, recipient, message)
+                elif data.startswith('/all '):
+                    # Broadcast messaging to all users
+                    _, message = data.split(' ', 1)
+                    self.broadcast_message(client_socket, client_address, message)
+                elif data == '/shutdown':
+                    self.shutdown_server()
                 else:
                     client_socket.sendall("Unknown command".encode())
             except Exception as e:
                 logging.error(f"Error handling client {client_address}: {e}")
                 break
+            
+    def shutdown_server(self):
+        self.running = False
+        # Notify connected clients about the shutdown
+        for socket in self.sockets:
+            try:
+                socket.sendall("Server is shutting down.".encode())
+                socket.close()
+            except Exception as e:
+                logging.error(f"Error closing client socket: {e}")
 
-        logging.info(f"Client {client_address} disconnected")
-        self.sockets.remove(client_socket)#Railey's edit
-        client_socket.close()
+        logging.info("Server shutdown process initiated.")
+
+    def unicast_message(self, client_socket, client_address, recipient, message):
         if client_address in self.clients:
-            del self.clients[client_address]
+            sender_handle = self.clients[client_address]
+            response = f"<Msg> {sender_handle}: {message}"
+            recipient_socket = self.find_socket_by_username(recipient)
 
+            if recipient_socket:
+                try:
+                    # Send to recipient
+                    recipient_socket.sendall(response.encode())
+                    # Also send back to sender for confirmation
+                    client_socket.sendall(response.encode())
+                except Exception as e:
+                    logging.error(f"Error sending unicast message: {e}")
+
+    def broadcast_message(self, client_socket, client_address, message):
+        # Implement logic to broadcast message to all connected users
+        if client_address in self.clients:
+            sender_handle = self.clients[client_address]
+            response = f"<All> {sender_handle}: {message}"
+            for socket in self.sockets:
+                try:
+                    socket.sendall(response.encode())
+                except Exception as e:
+                    logging.error(f"Error sending broadcast message: {e}")
+
+    def find_socket_by_username(self, username):
+        # Helper method to find socket by username
+        for address, handle in self.clients.items():
+            if handle == username:
+                for socket in self.sockets:
+                    if socket.getpeername() == address:
+                        return socket
+        return None
 
     def store_file(self, client_socket, client_address, filename):
         if client_address in self.clients:
@@ -138,11 +188,7 @@ class FileExchangeServer:
             self.clients[client_address] = handle
             response = f"Client {client_address} registered as {handle}"
             logging.info(response)
-
-        # Send the response back to the client
         client_socket.sendall(response.encode())
-
-
 
     def generate_unique_handle(self, handle):
         count = 1
@@ -151,25 +197,46 @@ class FileExchangeServer:
 
         return f"{handle}_{count}"
     
-    #Railey's edit
-    def message(self, client_socket, client_address, message): 
+    def message(self, client_socket, client_address, message, is_broadcast=False):
         if client_address in self.clients:
-            response = f"{self.clients[client_address]} : {message}"
+            sender_handle = self.clients[client_address]
+            response = f"{sender_handle} : {message}"
             logging.info(response)
-            client_socket.sendall(response.encode())
 
-            # Sends message to all clients
-            for socket in self.sockets:
-                if socket != client_socket:
-                    socket.sendall(response.encode())
+            # Check if it's a broadcast message
+            if is_broadcast:
+                response = "Broadcast from " + response
+                for socket in self.sockets:
+                    try:
+                        socket.sendall(response.encode())
+                    except Exception as e:
+                        logging.error(f"Error sending broadcast message: {e}")
+            else:
+                # Unicast message
+                target_user = message.split()[0]
+                response = "Unicast from " + response
+                message_sent = False  # Flag to check if message was sent to recipient
+                for address, handle in self.clients.items():
+                    if handle == target_user:
+                        try:
+                            for socket in self.sockets:
+                                if self.clients.get(socket.getpeername()) == target_user:
+                                    socket.sendall(response.encode())
+                                    message_sent = True
+                                    break
+                        except Exception as e:
+                            logging.error(f"Error sending unicast message: {e}")
+                        break
+                if message_sent:
+                    try:
+                        client_socket.sendall(response.encode())
+                    except Exception as e:
+                        logging.error(f"Error sending confirmation to the sender: {e}")
         else:
             response = "You have not yet registered. Please do /register [name]"
             logging.error(response)
             client_socket.sendall(response.encode())
-    #Railey's edit
-        
-
 
 if __name__ == "__main__":
-    server = FileExchangeServer(port=10000)
+    server = FileExchangeServer(port=12345)
     server.start()

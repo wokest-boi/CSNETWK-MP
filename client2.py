@@ -5,82 +5,135 @@ import socket
 class FileExchangeClient:
     def __init__(self):
         self.client_socket = None
+        self.isRegistered = False  # Track if the user is registered
         self.create_gui()
 
     def create_gui(self):
         self.root = tk.Tk()
-        self.root.geometry("500x500")
-        self.root.resizable(width=False, height=False)
+        self.root.geometry("750x750")
+        self.root.resizable(width=True, height=True)
         self.root.title("File Exchange System")
-        self.root.iconbitmap(r'Logo.ico')
+        #self.root.iconbitmap(r'Logo.ico')
 
-        # Chat display area
+        # Configure grid rows and columns
+        self.root.grid_rowconfigure(0, weight=1)  # Chat display row
+        self.root.grid_rowconfigure(1, weight=0)  # Input area row
+        self.root.grid_columnconfigure(0, weight=1)  # Main column
 
-        self.chat_display = tk.Text(self.root, state='disabled', height=28, width=60)
-        self.chat_display.bind('<MouseWheel>', lambda event: self.chat_display.yview_scroll(int(event.delta/-60),"units"))
-        
+        # Chat display with scrollbars
+        self.chat_display = tk.Text(self.root, state='disabled', borderwidth=2, relief="sunken")
+        self.chat_display.grid(row=0, column=0, sticky='nsew')
 
-        #scrollBar 
-        self.scroll = tk.Scrollbar(orient='vertical', command=self.chat_display.yview)
-        self.scroll.place(relx = 1, rely= 0, relheight= 1, anchor= 'ne')
-        self.chat_display.configure(yscrollcommand=self.scroll)
-        self.chat_display.pack()
+        # Vertical Scrollbar
+        self.v_scroll = tk.Scrollbar(self.root, orient='vertical', command=self.chat_display.yview)
+        self.v_scroll.grid(row=0, column=1, sticky='ns')
+        self.chat_display.configure(yscrollcommand=self.v_scroll.set)
 
         # Input area
-        self.box1 = tk.Canvas(width=477, height=55)
-        self.box1.configure(bg='light gray')
-        self.box1.pack()
-        self.box1.place(x=3, y=442)
-
-        self.typebox = tk.Entry(self.root, width=66)
-        self.box1.create_window(215, 25, window=self.typebox)
-        
+        self.typebox = tk.Entry(self.root, width=60)
+        self.typebox.grid(row=1, column=0, sticky='ew', padx=10, pady=10)
 
         # Submit button
         self.send_button = tk.Button(self.root, text='Submit', command=self.process_command_gui)
-        self.box1.create_window(445, 25, window= self.send_button)
+        self.send_button.grid(row=1, column=1, sticky='e', padx=10, pady=10)
 
         self.root.mainloop()
+        self.isRegistered = False  # Railey's Edit
 
     def connect_to_server(self, server_ip, server_port):
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((server_ip, server_port))
-            # Update GUI with connection status
             self.update_chat_display(f"Connected to {server_ip}:{server_port}")
+            threading.Thread(target=self.listen_for_messages, daemon=True).start()
         except Exception as e:
             error_message = f"Connection Error: {e}"
             print(error_message)
-            # Update GUI with error message
             self.update_chat_display(error_message)
+            
+    def listen_for_messages(self):
+        while self.client_socket:
+            try:
+                message = self.client_socket.recv(1024).decode()
+                if message:
+                    self.update_chat_display(message)
+                    self.check_registration_status(message)
+            except OSError:  # Handle potential socket errors
+                break
+            
+    def check_registration_status(self, message):
+        # Check for a message pattern that indicates successful registration
+        if "registered as" in message:
+            self.isRegistered = True
+            
+    def handle_registration(self, command):
+        self.client_socket.sendall(command.encode())
+        # The response will be handled in listen_for_messages now
 
     def process_command_gui(self):
         command = self.typebox.get()
         self.typebox.delete(0, 'end')
-        if command.startswith('/join '):
-            _, server_ip, server_port = command.split()
-            self.connect_to_server(server_ip, int(server_port))
-        elif command.startswith('/store ') or command.startswith('/get '):
+
+        if command in ['/help', '/?']:
+            self.display_help()
+        elif command.startswith('/join ') or command.startswith('/leave') or command.startswith('/register') or command.startswith('/shutdown'):
+            threading.Thread(target=self.process_command, args=(command,)).start()
+        elif self.isRegistered:
             threading.Thread(target=self.process_command, args=(command,)).start()
         else:
-            self.process_command(command)
+            self.update_chat_display("You must register first. Use /register <username>")
 
     def process_command(self, command):
         try:
-            if command.startswith('/store ') or command.startswith('/get '):
-                threading.Thread(target=self.handle_file_operations, args=(command,)).start()
+            if command in ['/help', '/?']:
+                # Display help information
+                self.display_help()
+            elif command.startswith('/join '):
+                _, server_ip, server_port = command.split()
+                self.connect_to_server(server_ip, int(server_port))
+            elif command.startswith('/register'):
+                self.handle_registration(command)
+            elif command.startswith('/shutdown'):
+                # Handle shutdown command
+                self.client_socket.sendall(command.encode())
+            elif self.isRegistered:
+                if command.startswith('/store ') or command.startswith('/get '):
+                    threading.Thread(target=self.handle_file_operations, args=(command,)).start()
+                else:
+                    self.handle_other_commands(command)
             else:
-                self.handle_other_commands(command)
+                self.update_chat_display("You must register first. Use /register <username>")
         except Exception as e:
             self.update_chat_display(f"Error: {e}")
+            
+    def display_help(self):
+        help_text = (
+            "/join <ip> <port> - Connect to the server at the specified IP and port.\n"
+            "/leave - Disconnect from the server.\n"
+            "/register <username> - Register with the server using the specified username.\n"
+            "/shutdown - Shut down the server (admin only).\n"
+            "/store <filename> - Store a file on the server.\n"
+            "/get <filename> - Retrieve a file from the server.\n"
+            "/msg <username> <message> - Send a private message to the specified user.\n"
+            "/all <message> - Send a broadcast message to all users.\n"
+            "/help or /? - Show this help message.\n"
+        )
+        self.update_chat_display(help_text)
 
 
+    def handle_registration(self, command):
+        self.client_socket.sendall(command.encode())
+        response = self.receive_full_response(self.client_socket)
+        if "registered as" in response:
+            self.isRegistered = True
+        self.update_chat_display(response)
+        
     def handle_file_operations(self, command):
         try:
-            if command.startswith('/store '):
+            if command.startswith('/store ') and self.isRegistered == True:
                 filename = command.split(maxsplit=1)[1]
                 self.send_file(filename)
-            elif command.startswith('/get '):
+            elif command.startswith('/get ') and self.isRegistered == True:
                 filename = command.split(maxsplit=1)[1]
                 self.client_socket.sendall(command.encode())
                 self.receive_file(filename)
@@ -90,13 +143,21 @@ class FileExchangeClient:
     def handle_other_commands(self, command):
         try:
             self.client_socket.sendall(command.encode())
-            if command in ['/dir', '/register', '/msg']:
+
+            if command.startswith('/register '):
+                response = self.receive_full_response(self.client_socket)
+                if "registered as" in response:
+                    self.isRegistered = True
+            elif (command.startswith('/msg ') or command.startswith('/all ')) and self.isRegistered:
+                return
+            elif command == '/dir' and self.isRegistered:
                 response = self.receive_full_response(self.client_socket)
             elif command == '/leave':
                 self.close_connection()
                 return
             else:
                 response = self.client_socket.recv(1024).decode()
+
             self.update_chat_display(response)
         except Exception as e:
             self.update_chat_display(f"Error: {e}")
@@ -106,7 +167,7 @@ class FileExchangeClient:
         while True:
             part = client_socket.recv(4096).decode()
             response += part
-            if len(part) < 4096:  # No more data left or buffer wasn't filled completely
+            if len(part) < 4096: # If we received less than 4096 bytes, then we know that we have received the full response
                 break
         return response
 
@@ -144,8 +205,7 @@ class FileExchangeClient:
         except socket.error as e:
             self.update_chat_display(f"Connection error: {e}")
             self.close_connection()
-
-
+            
     def close_connection(self):
         if self.client_socket:
             self.client_socket.close()
